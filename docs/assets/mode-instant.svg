@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">即时生成并编辑接线图</title><desc id="desc">配置 AI 提示词生成器，点击生成提示词，结果进入可编辑结果框。</desc>
+  <defs><marker id="a" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 Z" fill="#506784"/></marker><style>.box{fill:#f7f9fc;stroke:#506784;stroke-width:3}.head{fill:#315b8a}.t{font:24px sans-serif;fill:#17253a}.h{font:bold 25px sans-serif;fill:white}.s{font:19px sans-serif;fill:#4a5d73}.line{stroke:#506784;stroke-width:4;marker-end:url(#a)}</style></defs>
+  <rect width="1200" height="360" rx="24" fill="#eef3f8"/>
+  <rect class="box" x="55" y="75" width="310" height="210" rx="16"/><path class="head" d="M71 75h278a16 16 0 0116 16v42H55V91a16 16 0 0116-16z"/><text class="h" x="210" y="113" text-anchor="middle">AI 提示词生成器</text><text class="s" x="85" y="175">配置 provider / URL / Key</text><text class="s" x="85" y="215">填写系统提示词与问题</text><rect x="105" y="240" width="210" height="38" rx="9" fill="#2e79bd"/><text x="210" y="267" text-anchor="middle" font-family="sans-serif" font-size="20" fill="white">点击“生成提示词”</text>
+  <line class="line" x1="380" y1="180" x2="520" y2="180"/><text class="s" x="450" y="156" text-anchor="middle">即时 API 请求</text>
+  <rect class="box" x="540" y="100" width="270" height="160" rx="16"/><text class="t" x="675" y="157" text-anchor="middle">result 结果框</text><text class="s" x="675" y="199" text-anchor="middle">审阅、补充、删改</text><text class="s" x="675" y="231" text-anchor="middle">不启动工作流</text>
+  <line class="line" x1="825" y1="180" x2="960" y2="180"/>
+  <rect class="box" x="980" y="120" width="165" height="120" rx="16"/><text class="t" x="1062" y="170" text-anchor="middle">人工确认</text><text class="s" x="1062" y="207" text-anchor="middle">再决定运行</text>
+</svg>

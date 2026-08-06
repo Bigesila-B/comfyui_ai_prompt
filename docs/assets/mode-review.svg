@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">审阅后运行接线图</title><desc id="desc">非空结果框经过 AI 提示词生成器直接输出给下游，不重复调用 API。</desc>
+  <defs><marker id="a" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L10,3 L0,6 Z" fill="#506784"/></marker><style>.box{fill:#f7f9fc;stroke:#506784;stroke-width:3}.head{fill:#315b8a}.t{font:24px sans-serif;fill:#17253a}.h{font:bold 25px sans-serif;fill:white}.s{font:19px sans-serif;fill:#4a5d73}.line{stroke:#506784;stroke-width:4;marker-end:url(#a)}</style></defs>
+  <rect width="1200" height="360" rx="24" fill="#eef3f8"/>
+  <rect class="box" x="45" y="105" width="230" height="150" rx="16"/><text class="t" x="160" y="160" text-anchor="middle">已审阅的 result</text><text class="s" x="160" y="202" text-anchor="middle">非空、可编辑文本</text><text class="s" x="160" y="232" text-anchor="middle">direct_mode = false</text>
+  <line class="line" x1="290" y1="180" x2="405" y2="180"/><text class="s" x="347" y="155" text-anchor="middle">Queue</text>
+  <rect class="box" x="425" y="75" width="320" height="210" rx="16"/><path class="head" d="M441 75h288a16 16 0 0116 16v42H425V91a16 16 0 0116-16z"/><text class="h" x="585" y="113" text-anchor="middle">AI 提示词生成器</text><text class="t" x="585" y="175" text-anchor="middle">复用 result</text><text class="s" x="585" y="216" text-anchor="middle">不再次调用 API</text><text class="s" x="585" y="250" text-anchor="middle">输出 response: STRING</text>
+  <line class="line" x1="760" y1="180" x2="870" y2="180"/>
+  <rect class="box" x="890" y="105" width="265" height="150" rx="16"/><text class="t" x="1022" y="160" text-anchor="middle">下游文本节点</text><text class="s" x="1022" y="202" text-anchor="middle">正向提示词 / 保存文本</text><text class="s" x="1022" y="232" text-anchor="middle">稳定、可复现</text>
+</svg>

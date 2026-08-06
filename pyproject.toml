@@ -1,0 +1,19 @@
+[project]
+name = "ai-prompt"
+description = "ComfyUI AI prompt generation nodes supporting OpenAI, Anthropic, and LM Studio compatible APIs."
+version = "1.0.0"
+license = { file = "LICENSE" }
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31.0",
+    "Pillow>=10.0.0",
+    "numpy>=1.24.0",
+]
+
+[project.urls]
+Repository = "https://github.com/Bigesila-B/comfyui_ai_prompt"
+
+[tool.comfy]
+PublisherId = "Bigesila-B"
+DisplayName = "AI Prompt"

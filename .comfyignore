@@ -1,0 +1,22 @@
+# Development and local-only files excluded from Registry packages.
+.github/
+.gitignore
+.comfyignore
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+.env
+.env.*
+.idea/
+.vscode/
+*.log
+dist/
+build/
+*.egg-info/
