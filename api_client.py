@@ -1,11 +1,7 @@
-import base64
-import io
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
-import numpy as np
 import requests
-from PIL import Image
 
 
 PROVIDERS = ("OpenAI Responses", "OpenAI Chat", "Anthropic Messages", "LM Studio Compatible")
@@ -25,19 +21,7 @@ class ChatRequest:
     model: str
     system: str
     question: str
-    vision: bool = False
-    image_data_url: Optional[str] = None
-
-
-def tensor_to_data_url(image: Any) -> Optional[str]:
-    if image is None:
-        return None
-    array = image[0].detach().cpu().numpy() if hasattr(image, "detach") else np.asarray(image)[0]
-    array = np.clip(array * 255.0, 0, 255).astype(np.uint8)
-    buffer = io.BytesIO()
-    Image.fromarray(array).save(buffer, format="PNG")
-    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
-    return f"data:image/png;base64,{encoded}"
+    image_data_urls: list[str] | None = None
 
 
 def _endpoint(provider: str, url: str) -> str:
@@ -53,10 +37,13 @@ def _endpoint(provider: str, url: str) -> str:
 
 def _openai_payload(request: ChatRequest) -> dict[str, Any]:
     user_content: Any = request.question
-    if request.vision and request.image_data_url:
+    if request.image_data_urls:
         user_content = [
             {"type": "text", "text": request.question},
-            {"type": "image_url", "image_url": {"url": request.image_data_url}},
+            *(
+                {"type": "image_url", "image_url": {"url": image_data_url}}
+                for image_data_url in request.image_data_urls
+            ),
         ]
     return {
         "model": request.model,
@@ -69,8 +56,8 @@ def _openai_payload(request: ChatRequest) -> dict[str, Any]:
 
 def _responses_payload(request: ChatRequest) -> dict[str, Any]:
     user_content: list[dict[str, Any]] = [{"type": "input_text", "text": request.question}]
-    if request.vision and request.image_data_url:
-        user_content.append({"type": "input_image", "image_url": request.image_data_url})
+    for image_data_url in request.image_data_urls or []:
+        user_content.append({"type": "input_image", "image_url": image_data_url})
     return {
         "model": request.model,
         "instructions": request.system,
@@ -80,8 +67,8 @@ def _responses_payload(request: ChatRequest) -> dict[str, Any]:
 
 def _anthropic_payload(request: ChatRequest) -> dict[str, Any]:
     content: list[dict[str, Any]] = [{"type": "text", "text": request.question}]
-    if request.vision and request.image_data_url:
-        header, encoded = request.image_data_url.split(",", 1)
+    for image_data_url in reversed(request.image_data_urls or []):
+        header, encoded = image_data_url.split(",", 1)
         media_type = header.split(":", 1)[1].split(";", 1)[0]
         content.insert(0, {
             "type": "image",
@@ -100,8 +87,19 @@ def send_chat(request: ChatRequest, timeout: float = 120.0) -> str:
         raise ValueError(f"Unsupported provider: {request.provider}")
     if not request.model.strip():
         raise ValueError("Model is required")
-    if not request.question.strip():
-        raise ValueError("Question is required")
+    if not request.question.strip() and not request.image_data_urls:
+        raise ValueError("Question or image is required")
+
+    question = request.question.strip() or "请描述这张图片，并生成适合图像生成的详细提示词。"
+    request = ChatRequest(
+        provider=request.provider,
+        url=request.url,
+        api_key=request.api_key,
+        model=request.model,
+        system=request.system,
+        question=question,
+        image_data_urls=request.image_data_urls,
+    )
 
     if request.provider == "Anthropic Messages":
         headers = {

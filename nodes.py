@@ -1,6 +1,7 @@
-from typing import Any
+import json
 
-from .api_client import ChatRequest, DEFAULT_URLS, PROVIDERS, send_chat, tensor_to_data_url
+from .api_client import ChatRequest, DEFAULT_URLS, PROVIDERS, send_chat
+from .routes import image_data_urls
 
 
 class AIPromptTemplate:
@@ -34,9 +35,9 @@ class AIChatPrompt:
                 "system_template": ("STRING", {"multiline": True, "default": "You are a precise image prompt assistant."}),
                 "question": ("STRING", {"multiline": True, "default": "Describe the image as a concise generation prompt."}),
                 "result": ("STRING", {"multiline": True, "default": ""}),
-                "vision": ("BOOLEAN", {"default": False}),
                 "encode_clip": ("BOOLEAN", {"default": False}),
                 "direct_mode": ("BOOLEAN", {"default": False}),
+                "images": ("STRING", {"default": "[]"}),
             },
             "optional": {"image": ("IMAGE",), "clip": ("CLIP",)},
         }
@@ -60,14 +61,18 @@ class AIChatPrompt:
         system_template: str,
         question: str,
         result: str,
-        vision: bool,
         encode_clip: bool,
         direct_mode: bool,
-        image: Any = None,
-        clip: Any = None,
+        images: str,
+        image=None,
+        clip=None,
     ):
         response = result.strip()
         if direct_mode or not response:
+            try:
+                image_sources = json.loads(images or "[]")
+            except (json.JSONDecodeError, TypeError):
+                image_sources = []
             response = send_chat(ChatRequest(
                 provider=provider,
                 url=url,
@@ -75,8 +80,7 @@ class AIChatPrompt:
                 model=model,
                 system=system_template,
                 question=question,
-                vision=vision,
-                image_data_url=tensor_to_data_url(image) if vision else None,
+                image_data_urls=image_data_urls(image_sources),
             ))
         conditioning = None
         if encode_clip:

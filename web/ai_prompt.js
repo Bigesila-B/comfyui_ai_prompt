@@ -1,11 +1,86 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-const widgetValue = (node, name) => node.widgets?.find((widget) => widget.name === name)?.value;
+const widgetValue = (node, name) => node?.widgets?.find((widget) => widget.name === name)?.value
+    ?? node?.inputs?.find((input) => input.name === name || input.widget?.name === name)?._widget?.value;
+const graphLink = (graph, linkId) => {
+    const links = graph?.links;
+    if (linkId == null || !links) return null;
+    return graph.getLink?.(linkId)
+        ?? (typeof links.get === "function" ? links.get(linkId) : links[linkId])
+        ?? null;
+};
+const connectedNode = (node, inputName) => {
+    const graph = node.graph ?? app.graph;
+    const input = node.inputs?.find((item) => item.name === inputName);
+    const link = graphLink(graph, input?.link);
+    const originId = link?.origin_id ?? link?.originId;
+    return originId == null ? null : graph?.getNodeById(originId);
+};
+const connectedWidgetValue = (node, inputName, widgetName) => {
+    const source = connectedNode(node, inputName);
+    return source ? widgetValue(source, widgetName) : undefined;
+};
 const labels = {
     provider: "接口类型", url: "模型地址", api_key: "密钥", model: "模型 ID",
     system_template: "系统提示词", question: "向大模型提问", result: "生成结果（可修改）",
-    vision: "启用识图", encode_clip: "输出条件", direct_mode: "直连模式",
+    encode_clip: "输出条件", direct_mode: "直连模式",
+};
+
+const parseImages = (value) => {
+    try {
+        const images = JSON.parse(value || "[]");
+        return Array.isArray(images) ? images : [];
+    } catch {
+        return [];
+    }
+};
+
+const fetchWithTimeout = async (url, options, timeout = 130000) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+        return await api.fetchApi(url, {...options, signal: controller.signal});
+    } catch (error) {
+        if (error.name === "AbortError") throw new Error("请求超时：请检查模型服务是否正常运行，或缩小图片后重试");
+        throw error;
+    } finally {
+        clearTimeout(timer);
+    }
+};
+
+const previewUrl = (path) => {
+    if (path.startsWith("data:image/")) return path;
+    const cleanPath = path.replace(/ \[(input|output|temp)\]$/, "");
+    const slash = cleanPath.lastIndexOf("/");
+    const params = new URLSearchParams({
+        filename: slash >= 0 ? cleanPath.slice(slash + 1) : cleanPath,
+        subfolder: slash >= 0 ? cleanPath.slice(0, slash) : "",
+        type: "input",
+    });
+    return api.apiURL(`/view?${params}`);
+};
+
+const removeLegacyVisionWidget = (node) => {
+    let index = node.widgets?.findIndex((widget) => widget.name === "vision") ?? -1;
+    while (index >= 0) {
+        const widget = node.widgets[index];
+        widget.onRemove?.();
+        widget.inputEl?.remove();
+        node.widgets.splice(index, 1);
+        index = node.widgets.findIndex((item) => item.name === "vision");
+    }
+};
+
+const hideWidget = (widget) => {
+    if (!widget || widget.type === "converted-widget") return;
+    widget.origType = widget.type;
+    widget.origComputeSize = widget.computeSize;
+    widget.type = "converted-widget";
+    widget.computeSize = () => [0, -4];
+    widget.serializeValue = async () => widget.value;
+    widget.hidden = true;
+    if (widget.inputEl?.style) widget.inputEl.style.display = "none";
 };
 
 const installResizableText = (nodeType, minHeight, resizeTextareas) => {
@@ -29,6 +104,21 @@ const setWidgetHeight = (widget, height, bottomGap = 0) => {
         widget.inputEl.style.maxHeight = `${height}px`;
         widget.inputEl.style.resize = "none";
         widget.inputEl.style.boxSizing = "border-box";
+    }
+};
+
+const resizeImageUploadWidget = (widget, width) => {
+    if (!widget) return;
+    const contentWidth = Math.max(1, width - 20);
+    widget.computeSize = () => [contentWidth, 148];
+    const element = widget.element ?? widget.domElement ?? widget.el;
+    for (const target of [element, element?.firstElementChild]) {
+        if (!target?.style) continue;
+        target.style.width = `${contentWidth}px`;
+        target.style.maxWidth = `${contentWidth}px`;
+        target.style.minWidth = "0";
+        target.style.boxSizing = "border-box";
+        target.style.overflow = "hidden";
     }
 };
 
@@ -57,27 +147,171 @@ app.registerExtension({
         }
         if (nodeData.name !== "AIChatPrompt") return;
 
-        installResizableText(nodeType, 620, (node, size) => {
+        installResizableText(nodeType, 760, (node, size) => {
             const widget = node.widgets?.find((item) => item.name === "result");
-            setWidgetHeight(widget, Math.max(120, size[1] - 524), 24);
+            const uploadWidget = node.widgets?.find((item) => item.name === "image_uploads");
+            setWidgetHeight(widget, Math.max(120, size[1] - 690), 28);
+            resizeImageUploadWidget(uploadWidget, size[0]);
+            requestAnimationFrame(() => {
+                resizeImageUploadWidget(uploadWidget, node.size[0]);
+                node.setDirtyCanvas?.(true, true);
+            });
         });
 
         const originalCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
             originalCreated?.apply(this, arguments);
+            removeLegacyVisionWidget(this);
 
             for (const widget of this.widgets || []) {
                 if (labels[widget.name]) widget.label = labels[widget.name];
             }
             const resultWidget = this.widgets?.find((widget) => widget.name === "result");
+            const imagesWidget = this.widgets?.find((widget) => widget.name === "images");
+            hideWidget(imagesWidget);
             if (resultWidget?.inputEl) {
                 resultWidget.inputEl.style.minHeight = "0";
                 resultWidget.inputEl.style.resize = "none";
             }
+
+            const uploadPanel = document.createElement("div");
+            uploadPanel.style.cssText = [
+                "display:flex", "flex-direction:column", "gap:8px", "width:100%",
+                "max-width:100%", "min-width:0", "padding:10px", "border:1px solid #555",
+                "border-radius:8px", "background:#202020", "color:#ddd",
+                "box-sizing:border-box", "overflow:hidden",
+            ].join(";");
+            const toolbar = document.createElement("div");
+            toolbar.style.cssText = [
+                "display:flex", "align-items:center", "gap:8px", "width:100%",
+                "max-width:100%", "min-width:0", "box-sizing:border-box", "overflow:hidden",
+            ].join(";");
+            const status = document.createElement("span");
+            status.style.cssText = "flex:1;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
+            const addButton = document.createElement("button");
+            addButton.textContent = "添加图片";
+            const clearButton = document.createElement("button");
+            clearButton.textContent = "清空";
+            for (const button of [addButton, clearButton]) {
+                button.style.cssText = "border:1px solid #666;border-radius:5px;background:#333;color:#eee;padding:5px 10px;cursor:pointer;";
+            }
+            const previews = document.createElement("div");
+            previews.style.cssText = [
+                "display:flex", "gap:7px", "width:100%", "max-width:100%", "min-width:0",
+                "height:84px", "overflow-x:auto", "overflow-y:hidden", "align-items:center",
+                "border:1px dashed #666", "border-radius:7px", "padding:6px",
+                "box-sizing:border-box", "transition:border-color .15s,background .15s",
+            ].join(";");
+            toolbar.append(status, addButton, clearButton);
+            uploadPanel.append(toolbar, previews);
+            const uploadWidget = this.addDOMWidget("image_uploads", "div", uploadPanel, { serialize: false });
+            resizeImageUploadWidget(uploadWidget, this.size[0]);
+
+            const renderImages = () => {
+                const images = parseImages(imagesWidget?.value);
+                status.textContent = images.length ? `已选择 ${images.length} 张图片` : "点击添加，或将图片拖到虚线框内";
+                previews.replaceChildren();
+                for (const path of images) {
+                    const image = document.createElement("img");
+                    image.src = previewUrl(path);
+                    image.title = path;
+                    image.style.cssText = "width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid #555;flex:none;";
+                    previews.append(image);
+                }
+            };
+            const setImages = (images) => {
+                if (!imagesWidget) return;
+                const oldValue = imagesWidget.value;
+                imagesWidget.value = JSON.stringify(images);
+                imagesWidget.callback?.(imagesWidget.value);
+                this.onWidgetChanged?.(imagesWidget.name, imagesWidget.value, oldValue, imagesWidget);
+                renderImages();
+                this.setDirtyCanvas(true, true);
+            };
+            const processFiles = async (fileList) => {
+                const files = Array.from(fileList || []).filter((file) => file.type.startsWith("image/"));
+                if (!files.length) {
+                    status.textContent = "没有检测到可用图片";
+                    return;
+                }
+                addButton.disabled = true;
+                try {
+                    const prepared = [];
+                    for (let index = 0; index < files.length; index += 1) {
+                        status.textContent = `正在处理图片 ${index + 1}/${files.length}...`;
+                        const form = new FormData();
+                        form.append("image", files[index], files[index].name);
+                        form.append("type", "input");
+                        form.append("overwrite", "false");
+                        const response = await fetchWithTimeout("/upload/image", {
+                            method: "POST",
+                            body: form,
+                        });
+                        const uploaded = await response.json();
+                        if (!response.ok || !uploaded.name) {
+                            throw new Error(uploaded.error || `图片上传失败：HTTP ${response.status}`);
+                        }
+                        const path = uploaded.subfolder
+                            ? `${uploaded.subfolder}/${uploaded.name}`
+                            : uploaded.name;
+                        prepared.push(`${path} [${uploaded.type || "input"}]`);
+                    }
+                    setImages([...parseImages(imagesWidget?.value), ...prepared]);
+                } catch (error) {
+                    status.textContent = `图片处理失败：${error.message}`;
+                } finally {
+                    addButton.disabled = false;
+                }
+            };
+            addButton.onclick = () => {
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = "image/*";
+                input.multiple = true;
+                input.onchange = () => processFiles(input.files);
+                input.click();
+            };
+            uploadPanel.ondragover = (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                previews.style.borderColor = "#8ab4f8";
+                previews.style.background = "rgba(138,180,248,.12)";
+                status.textContent = "松开鼠标即可添加图片";
+            };
+            uploadPanel.ondragleave = (event) => {
+                event.preventDefault();
+                previews.style.borderColor = "#666";
+                previews.style.background = "transparent";
+                renderImages();
+            };
+            uploadPanel.ondrop = (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                previews.style.borderColor = "#666";
+                previews.style.background = "transparent";
+                processFiles(event.dataTransfer?.files);
+            };
+            clearButton.onclick = () => setImages([]);
+            renderImages();
+
+            const originalConfigure = this.onConfigure;
+            this.onConfigure = function () {
+                originalConfigure?.apply(this, arguments);
+                queueMicrotask(() => {
+                    removeLegacyVisionWidget(this);
+                    hideWidget(this.widgets?.find((widget) => widget.name === "images"));
+                    renderImages();
+                    this.setDirtyCanvas(true, true);
+                });
+            };
+
             const generateButton = this.addWidget("button", "生成提示词", null, async () => {
                 generateButton.name = "正在生成...";
                 try {
-                    const response = await api.fetchApi("/ai-prompt/chat", {
+                    const connectedImage = widgetValue(connectedNode(this, "image"), "image");
+                    const images = parseImages(imagesWidget?.value);
+                    if (connectedImage && !images.includes(connectedImage)) images.unshift(connectedImage);
+                    const response = await fetchWithTimeout("/ai-prompt/chat", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
@@ -85,23 +319,26 @@ app.registerExtension({
                             url: widgetValue(this, "url"),
                             api_key: widgetValue(this, "api_key"),
                             model: widgetValue(this, "model"),
-                            system_template: widgetValue(this, "system_template"),
-                            question: widgetValue(this, "question"),
-                            vision: false,
+                            system_template: connectedWidgetValue(this, "system_template", "template")
+                                ?? widgetValue(this, "system_template")
+                                ?? "",
+                            question: widgetValue(this, "question") || "",
+                            images,
                         }),
                     });
                     const data = await response.json();
                     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-                    resultWidget.value = data.response;
+                    if (resultWidget) resultWidget.value = data.response;
                 } catch (error) {
-                    resultWidget.value = error.message;
+                    if (resultWidget) resultWidget.value = error.message;
                 } finally {
                     generateButton.name = "生成提示词";
                     this.setDirtyCanvas(true, true);
                 }
             });
             generateButton.serialize = false;
-            this.setSize([Math.max(this.size[0], 420), Math.max(this.size[1], 760)]);
+            generateButton.computeSize = (width) => [width, 32];
+            this.setSize([Math.max(this.size[0], 460), Math.max(this.size[1], 940)]);
         };
     },
 });
