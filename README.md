@@ -7,7 +7,7 @@
 - 在节点内调用大语言模型生成提示词，不必离开 ComfyUI。
 - 支持 OpenAI Responses、OpenAI Chat、Anthropic Messages 与本地 LM Studio 兼容接口。
 - 提供“即时生成并编辑”“审阅后运行”“直连自动生成”三种使用模式。
-- Queue 执行时可附带 `IMAGE`，调用支持视觉输入的模型识图。
+- 节点内可上传一张或多张图片，检测到图片后自动调用支持视觉输入的模型识图。
 - 可输出普通 `STRING`，也可连接 `CLIP` 输出 `CONDITIONING`。
 - 附带独立的“AI 提示词模板”节点，便于在工作流中复用系统提示词。
 
@@ -50,7 +50,7 @@ python -m pip install -r requirements.txt
 
 ![即时生成并编辑接线图](docs/assets/mode-instant.svg)
 
-注意：按钮请求来自前端，固定不读取已连接的 `IMAGE`。需要识图时请使用模式三，通过 Queue 执行。
+需要识图时，直接在节点的图片上传区添加一张或多张图片；未选择图片时自动使用纯文本模式。只上传图片而不填写 `question` 时，插件会自动使用默认识图提示词。
 
 ### 模式二：审阅后运行（推荐）
 
@@ -62,7 +62,7 @@ python -m pip install -r requirements.txt
 
 ### 模式三：直连自动生成
 
-设置 `direct_mode = true`，再点击 ComfyUI 的 Queue/运行按钮。每次执行都会忽略 `result` 中的旧内容，重新调用 API，并把新结果传给下游。识图和自动 CLIP 编码也应在此 Queue 路径中使用。
+设置 `direct_mode = true`，再点击 ComfyUI 的 Queue/运行按钮。每次执行都会忽略 `result` 中的旧内容，重新调用 API，并把新结果传给下游。节点图片上传区中的全部图片也会随请求发送。
 
 ![直连自动生成接线图](docs/assets/mode-direct.svg)
 
@@ -79,12 +79,11 @@ python -m pip install -r requirements.txt
 | `api_key` | STRING | 服务密钥；无鉴权的本地服务可留空。输入框仅做密码遮罩。 |
 | `model` | STRING | 服务端模型标识，不能为空，例如 `gpt-4o-mini`。 |
 | `system_template` | STRING | 发送给模型的系统提示词。可由“AI 提示词模板”节点连接。 |
-| `question` | STRING | 用户问题或提示词生成要求，不能为空。 |
+| `question` | STRING | 用户问题或提示词生成要求。只上传图片时可留空，会自动使用默认识图提示词。 |
 | `result` | STRING | 可编辑的生成结果。非直连 Queue 会优先复用其中的非空文本。 |
-| `vision` | BOOLEAN | Queue 请求是否附带 `image`。模型和接口必须支持视觉输入。 |
 | `encode_clip` | BOOLEAN | 是否把最终文本经 `clip` 编码为 `CONDITIONING`。 |
 | `direct_mode` | BOOLEAN | 是否在每次 Queue 执行时强制重新调用 API。 |
-| `image` | IMAGE，可选 | 视觉输入；仅在 Queue 执行且 `vision = true` 时发送。 |
+| 图片上传区 | 内置控件 | 可添加一张或多张图片；有图片时自动启用视觉请求，清空后恢复纯文本模式。 |
 | `clip` | CLIP，可选 | `encode_clip = true` 时必接，否则执行会报错。 |
 
 输出：
@@ -141,11 +140,11 @@ python -m pip install -r requirements.txt
 
 ### 模型或问题不能为空
 
-`model` 与 `question` 必须包含非空文本。模型 ID 必须与服务端提供的名称完全一致。
+`model` 必须包含非空文本。模型 ID 必须与服务端提供的名称完全一致。`question` 在有图片时可留空，插件会自动使用默认识图提示词。
 
-### 点击“生成提示词”没有识图
+### 图片没有发送给模型
 
-这是预期行为：即时按钮固定不读取连接的图片。请连接 `image`，开启 `vision`，并通过 Queue 执行；建议同时开启 `direct_mode`。
+确认节点图片上传区显示的图片数量大于零，并且所选模型与接口支持视觉输入。即时生成按钮和 Queue 执行都会读取同一图片列表。
 
 ### `CLIP input is required when encode_clip is enabled`
 
