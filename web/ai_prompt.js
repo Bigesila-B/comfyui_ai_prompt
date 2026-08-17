@@ -24,7 +24,12 @@ const connectedWidgetValue = (node, inputName, widgetName) => {
 const labels = {
     provider: "接口类型", url: "模型地址", api_key: "密钥", model: "模型 ID",
     system_template: "系统提示词", question: "向大模型提问", result: "生成结果（可修改）",
-    encode_clip: "输出条件", direct_mode: "直连模式",
+    encode_clip: "encode_clip（开启后用 CLIP 编码生成结果）",
+    direct_mode: "direct_mode（开启后运行工作流时重新请求模型）",
+};
+const tooltips = {
+    encode_clip: "开启后，会使用连接到 clip 输入端的 CLIP 模型，把最终 result 文本编码为 CONDITIONING，并从 conditioning 输出端提供给 KSampler 的 positive 或 negative。若未连接 CLIP，开启后运行会报错。关闭时仍会正常输出 response 文本，但 conditioning 不会包含可用条件。",
+    direct_mode: "开启后，每次运行 ComfyUI 工作流都会重新请求语言模型，并用新响应继续执行，即使 result 已有内容。关闭时优先复用可编辑的 result；只有 result 为空时才请求模型。需要先审查或手动修改提示词时建议关闭。",
 };
 
 const parseImages = (value) => {
@@ -109,13 +114,12 @@ const setWidgetHeight = (widget, height, bottomGap = 0) => {
 
 const resizeImageUploadWidget = (widget, width) => {
     if (!widget) return;
-    const contentWidth = Math.max(1, width - 20);
-    widget.computeSize = () => [contentWidth, 148];
+    widget.computeSize = () => [Math.max(1, width - 20), 148];
     const element = widget.element ?? widget.domElement ?? widget.el;
     for (const target of [element, element?.firstElementChild]) {
         if (!target?.style) continue;
-        target.style.width = `${contentWidth}px`;
-        target.style.maxWidth = `${contentWidth}px`;
+        target.style.width = "100%";
+        target.style.maxWidth = "100%";
         target.style.minWidth = "0";
         target.style.boxSizing = "border-box";
         target.style.overflow = "hidden";
@@ -165,6 +169,7 @@ app.registerExtension({
 
             for (const widget of this.widgets || []) {
                 if (labels[widget.name]) widget.label = labels[widget.name];
+                if (tooltips[widget.name]) widget.tooltip = tooltips[widget.name];
             }
             const resultWidget = this.widgets?.find((widget) => widget.name === "result");
             const imagesWidget = this.widgets?.find((widget) => widget.name === "images");
@@ -177,24 +182,39 @@ app.registerExtension({
             const uploadPanel = document.createElement("div");
             uploadPanel.style.cssText = [
                 "display:flex", "flex-direction:column", "gap:8px", "width:100%",
-                "max-width:100%", "min-width:0", "padding:10px", "border:1px solid #555",
+                "max-width:100%", "min-width:0", "padding:5px 10px", "border:1px solid #555",
                 "border-radius:8px", "background:#202020", "color:#ddd",
-                "box-sizing:border-box", "overflow:hidden",
+                "box-sizing:border-box", "overflow:hidden", "position:relative", "z-index:2",
+                "pointer-events:auto",
             ].join(";");
             const toolbar = document.createElement("div");
             toolbar.style.cssText = [
-                "display:flex", "align-items:center", "gap:8px", "width:100%",
-                "max-width:100%", "min-width:0", "box-sizing:border-box", "overflow:hidden",
+                "display:grid", "grid-template-columns:minmax(0,1fr) auto auto",
+                "align-items:center", "gap:6px", "width:100%", "max-width:100%",
+                "min-width:0", "padding-right:8px", "box-sizing:border-box",
+                "position:relative", "z-index:3", "pointer-events:auto",
             ].join(";");
             const status = document.createElement("span");
-            status.style.cssText = "flex:1;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
+            status.style.cssText = "min-width:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;";
             const addButton = document.createElement("button");
+            addButton.type = "button";
             addButton.textContent = "添加图片";
             const clearButton = document.createElement("button");
+            clearButton.type = "button";
             clearButton.textContent = "清空";
             for (const button of [addButton, clearButton]) {
-                button.style.cssText = "border:1px solid #666;border-radius:5px;background:#333;color:#eee;padding:5px 10px;cursor:pointer;";
+                button.style.cssText = [
+                    "display:inline-flex", "align-items:center", "justify-content:center",
+                    "min-width:0", "height:30px", "box-sizing:border-box", "padding:4px 8px",
+                    "border:1px solid #666", "border-radius:5px", "background:#333", "color:#eee",
+                    "cursor:pointer", "position:relative", "z-index:4", "pointer-events:auto",
+                ].join(";");
             }
+            const fileInput = document.createElement("input");
+            fileInput.type = "file";
+            fileInput.accept = "image/*";
+            fileInput.multiple = true;
+            fileInput.style.display = "none";
             const previews = document.createElement("div");
             previews.style.cssText = [
                 "display:flex", "gap:7px", "width:100%", "max-width:100%", "min-width:0",
@@ -203,7 +223,7 @@ app.registerExtension({
                 "box-sizing:border-box", "transition:border-color .15s,background .15s",
             ].join(";");
             toolbar.append(status, addButton, clearButton);
-            uploadPanel.append(toolbar, previews);
+            uploadPanel.append(toolbar, previews, fileInput);
             const uploadWidget = this.addDOMWidget("image_uploads", "div", uploadPanel, { serialize: false });
             resizeImageUploadWidget(uploadWidget, this.size[0]);
 
@@ -263,13 +283,17 @@ app.registerExtension({
                     addButton.disabled = false;
                 }
             };
-            addButton.onclick = () => {
-                const input = document.createElement("input");
-                input.type = "file";
-                input.accept = "image/*";
-                input.multiple = true;
-                input.onchange = () => processFiles(input.files);
-                input.click();
+            fileInput.onchange = () => {
+                processFiles(fileInput.files);
+                fileInput.value = "";
+            };
+            for (const element of [addButton, clearButton]) {
+                element.onpointerdown = (event) => event.stopPropagation();
+            }
+            addButton.onclick = (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                fileInput.click();
             };
             uploadPanel.ondragover = (event) => {
                 event.preventDefault();
@@ -291,7 +315,15 @@ app.registerExtension({
                 previews.style.background = "transparent";
                 processFiles(event.dataTransfer?.files);
             };
-            clearButton.onclick = () => setImages([]);
+            clearButton.onclick = (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setImages([]);
+            };
+            for (const type of ["mousedown", "mouseup", "click", "auxclick", "dblclick"]) {
+                uploadPanel.addEventListener(type, (event) => event.stopPropagation());
+            }
+            uploadPanel.addEventListener("dblclick", (event) => event.preventDefault());
             renderImages();
 
             const originalConfigure = this.onConfigure;
