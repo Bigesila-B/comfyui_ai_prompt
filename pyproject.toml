@@ -15,5 +15,5 @@ dependencies = [
 Repository = "https://github.com/Bigesila-B/comfyui_ai_prompt"
 
 [tool.comfy]
-PublisherId = "Bigesila-B"
+PublisherId = "bigesila"
 DisplayName = "AI Prompt"
